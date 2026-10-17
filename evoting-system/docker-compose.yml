@@ -1,0 +1,28 @@
+version: "3.9"
+
+# NOTE ON THE DATABASE: there is deliberately NO postgres service here.
+# This project uses Neon (managed, serverless Postgres) — DATABASE_URL
+# in backend/.env should point to your Neon connection string, the
+# same one you already used for local development. Running Postgres
+# in a local container would just be a second, disconnected database
+# that migrations/data never sync with the one you've been testing
+# against — not what you want.
+
+services:
+  backend:
+    build: ./backend
+    ports:
+      - "5000:5000"
+    env_file:
+      - ./backend/.env
+    environment:
+      - FLASK_ENV=production
+    restart: unless-stopped
+
+  frontend:
+    build: ./frontend
+    ports:
+      - "80:80"
+    depends_on:
+      - backend
+    restart: unless-stopped

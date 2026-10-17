@@ -1,0 +1,41 @@
+# --- Core web framework ---
+Flask==3.0.3
+Werkzeug==3.0.3
+python-dotenv==1.0.1
+gunicorn==22.0.0
+
+# --- Database / ORM ---
+Flask-SQLAlchemy==3.1.1
+Flask-Migrate==4.0.7
+alembic==1.13.2
+psycopg2-binary==2.9.9
+SQLAlchemy==2.0.31
+
+# --- Auth / security ---
+Flask-JWT-Extended==4.6.0
+bcrypt==4.2.0
+Flask-CORS==4.0.1
+Flask-Limiter==3.8.0
+cryptography==43.0.0
+
+# --- Validation / serialization ---
+marshmallow==3.21.3
+email-validator==2.2.0
+
+# --- Face recognition (Part 5) ---
+opencv-python-headless==4.10.0.84
+mediapipe==0.10.14
+insightface==0.7.3
+onnxruntime==1.18.1
+numpy==1.26.4
+
+# --- HTTP client (used by test/diagnostic scripts) ---
+requests==2.32.3
+
+# --- Reports (Part 9) ---
+reportlab==4.2.2
+openpyxl==3.1.5
+
+# --- Testing ---
+pytest==8.3.2
+pytest-flask==1.3.0

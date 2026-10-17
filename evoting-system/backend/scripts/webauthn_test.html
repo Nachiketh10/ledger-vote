@@ -1,0 +1,233 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>WebAuthn Fingerprint Test</title>
+<style>
+  body { font-family: system-ui, sans-serif; max-width: 720px; margin: 40px auto; padding: 0 20px; }
+  button { padding: 10px 16px; margin: 6px 6px 6px 0; font-size: 14px; cursor: pointer; }
+  button:disabled { opacity: 0.5; cursor: not-allowed; }
+  #log { background: #111; color: #0f0; padding: 14px; border-radius: 6px; font-family: monospace;
+         font-size: 13px; white-space: pre-wrap; height: 360px; overflow-y: auto; margin-top: 20px; }
+  .ok { color: #6f6; } .fail { color: #f66; } .info { color: #6cf; }
+  h1 { font-size: 20px; } h2 { font-size: 15px; margin-top: 24px; }
+  .note { background: #fff3cd; padding: 10px; border-radius: 6px; font-size: 13px; }
+</style>
+</head>
+<body>
+
+<h1>WebAuthn Fingerprint — Standalone Test</h1>
+
+<div class="note">
+  <b>Important:</b> open this page as <code>http://localhost:5000/dev/webauthn-test</code>
+  (served BY your Flask app, same origin) — not as a local file. WebAuthn's origin check
+  will otherwise fail. Also make sure your <code>.env</code> has
+  <code>WEBAUTHN_ORIGIN=http://localhost:5000</code> and <code>WEBAUTHN_RP_ID=localhost</code>
+  while testing this way (switch WEBAUTHN_ORIGIN to your real frontend's URL, e.g.
+  <code>http://localhost:5173</code>, once Part 8's React app is built).
+</div>
+
+<h2>Step 1 — Test account</h2>
+<button id="btnSetup">Register + login a throwaway test voter</button>
+
+<h2>Step 2 — Fingerprint registration</h2>
+<button id="btnRegister" disabled>Register fingerprint (Windows Hello / Touch ID prompt)</button>
+
+<h2>Step 3 — Fingerprint verification</h2>
+<button id="btnVerify" disabled>Verify fingerprint</button>
+
+<div id="log"></div>
+
+<script>
+const API = ""; // same-origin, since this page is served by Flask itself
+let accessToken = null;
+
+function log(msg, cls) {
+  const el = document.getElementById("log");
+  const line = document.createElement("div");
+  if (cls) line.className = cls;
+  line.textContent = msg;
+  el.appendChild(line);
+  el.scrollTop = el.scrollHeight;
+}
+
+// ---- base64url <-> ArrayBuffer helpers ----
+function bufferToBase64url(buffer) {
+  const bytes = new Uint8Array(buffer);
+  let str = "";
+  for (const b of bytes) str += String.fromCharCode(b);
+  return btoa(str).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+}
+function base64urlToBuffer(base64url) {
+  const padding = "=".repeat((4 - (base64url.length % 4)) % 4);
+  const base64 = (base64url + padding).replace(/-/g, "+").replace(/_/g, "/");
+  const raw = atob(base64);
+  const buffer = new Uint8Array(raw.length);
+  for (let i = 0; i < raw.length; i++) buffer[i] = raw.charCodeAt(i);
+  return buffer.buffer;
+}
+
+// ---- Step 1: throwaway voter + login ----
+document.getElementById("btnSetup").addEventListener("click", async () => {
+  const suffix = Math.random().toString(36).slice(2, 8);
+  const email = `webauthntest_${suffix}@example.com`;
+  const password = "Str0ng!TestPass1";
+
+  log("Registering test voter " + email + " ...", "info");
+  const regResp = await fetch(API + "/api/auth/register", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      name: "WebAuthn Test Voter",
+      dob: "1995-01-01",
+      gender: "other",
+      phone: "+15555550123",
+      email: email,
+      address: "123 Test St",
+      voter_id: "WAT-" + suffix,
+      password: password,
+    }),
+  });
+  if (regResp.status !== 201) {
+    log("FAILED to register voter: " + regResp.status + " " + await regResp.text(), "fail");
+    return;
+  }
+  log("Voter registered.", "ok");
+
+  const loginResp = await fetch(API + "/api/auth/login", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ email, password, role: "voter" }),
+  });
+  if (loginResp.status !== 200) {
+    log("FAILED to login: " + loginResp.status + " " + await loginResp.text(), "fail");
+    return;
+  }
+  const loginData = await loginResp.json();
+  accessToken = loginData.data.access_token;
+  log("Logged in, got access token.", "ok");
+
+  document.getElementById("btnRegister").disabled = false;
+});
+
+// ---- Step 2: register fingerprint ----
+document.getElementById("btnRegister").addEventListener("click", async () => {
+  try {
+    log("Fetching registration options...", "info");
+    const optResp = await fetch(API + "/api/fingerprint/register/options", {
+      method: "POST",
+      headers: { Authorization: "Bearer " + accessToken },
+    });
+    const optBody = await optResp.json();
+    if (optResp.status !== 200) {
+      log("FAILED to get options: " + optResp.status + " " + JSON.stringify(optBody), "fail");
+      return;
+    }
+    const options = JSON.parse(optBody.data.options);
+    const state = optBody.data.state;
+    log("Got options + state. Prompting for biometric now (Windows Hello / Touch ID)...", "info");
+
+    // Convert base64url fields to ArrayBuffers, as navigator.credentials.create() requires.
+    const publicKey = {
+      ...options,
+      challenge: base64urlToBuffer(options.challenge),
+      user: { ...options.user, id: base64urlToBuffer(options.user.id) },
+      excludeCredentials: (options.excludeCredentials || []).map(c => ({
+        ...c, id: base64urlToBuffer(c.id),
+      })),
+    };
+
+    const credential = await navigator.credentials.create({ publicKey });
+    log("Got credential from authenticator: id=" + credential.id, "ok");
+
+    const credentialJson = JSON.stringify({
+      id: credential.id,
+      rawId: bufferToBase64url(credential.rawId),
+      type: credential.type,
+      response: {
+        clientDataJSON: bufferToBase64url(credential.response.clientDataJSON),
+        attestationObject: bufferToBase64url(credential.response.attestationObject),
+      },
+      clientExtensionResults: credential.getClientExtensionResults ? credential.getClientExtensionResults() : {},
+    });
+
+    log("Sending credential to /api/fingerprint/register/verify ...", "info");
+    const verifyResp = await fetch(API + "/api/fingerprint/register/verify", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Authorization: "Bearer " + accessToken },
+      body: JSON.stringify({ credential: credentialJson, state }),
+    });
+    const verifyBody = await verifyResp.json();
+    if (verifyResp.status === 201) {
+      log("FINGERPRINT REGISTERED SUCCESSFULLY: " + JSON.stringify(verifyBody), "ok");
+      document.getElementById("btnVerify").disabled = false;
+    } else {
+      log("Registration verify FAILED: " + verifyResp.status + " " + JSON.stringify(verifyBody), "fail");
+    }
+  } catch (e) {
+    log("ERROR: " + e.message, "fail");
+    console.error(e);
+  }
+});
+
+// ---- Step 3: verify fingerprint ----
+document.getElementById("btnVerify").addEventListener("click", async () => {
+  try {
+    log("Fetching authentication options...", "info");
+    const optResp = await fetch(API + "/api/fingerprint/verify/options", {
+      method: "POST",
+      headers: { Authorization: "Bearer " + accessToken },
+    });
+    const optBody = await optResp.json();
+    if (optResp.status !== 200) {
+      log("FAILED to get options: " + optResp.status + " " + JSON.stringify(optBody), "fail");
+      return;
+    }
+    const options = JSON.parse(optBody.data.options);
+    const state = optBody.data.state;
+    log("Got options + state. Prompting for biometric now...", "info");
+
+    const publicKey = {
+      ...options,
+      challenge: base64urlToBuffer(options.challenge),
+      allowCredentials: (options.allowCredentials || []).map(c => ({
+        ...c, id: base64urlToBuffer(c.id),
+      })),
+    };
+
+    const assertion = await navigator.credentials.get({ publicKey });
+    log("Got assertion from authenticator: id=" + assertion.id, "ok");
+
+    const credentialJson = JSON.stringify({
+      id: assertion.id,
+      rawId: bufferToBase64url(assertion.rawId),
+      type: assertion.type,
+      response: {
+        clientDataJSON: bufferToBase64url(assertion.response.clientDataJSON),
+        authenticatorData: bufferToBase64url(assertion.response.authenticatorData),
+        signature: bufferToBase64url(assertion.response.signature),
+        userHandle: assertion.response.userHandle ? bufferToBase64url(assertion.response.userHandle) : null,
+      },
+      clientExtensionResults: assertion.getClientExtensionResults ? assertion.getClientExtensionResults() : {},
+    });
+
+    log("Sending assertion to /api/fingerprint/verify/verify ...", "info");
+    const verifyResp = await fetch(API + "/api/fingerprint/verify/verify", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Authorization: "Bearer " + accessToken },
+      body: JSON.stringify({ credential: credentialJson, state }),
+    });
+    const verifyBody = await verifyResp.json();
+    if (verifyResp.status === 200) {
+      log("FINGERPRINT VERIFIED SUCCESSFULLY: " + JSON.stringify(verifyBody), "ok");
+    } else {
+      log("Verification FAILED: " + verifyResp.status + " " + JSON.stringify(verifyBody), "fail");
+    }
+  } catch (e) {
+    log("ERROR: " + e.message, "fail");
+    console.error(e);
+  }
+});
+</script>
+</body>
+</html>

@@ -1,0 +1,83 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  color-scheme: light;
+  --color-ink: 11 18 32;           /* #0B1220 */
+  --color-parchment: 246 244 238;  /* #F6F4EE */
+  --color-surface: 255 255 255;    /* #FFFFFF */
+  --color-text: 20 24 33;          /* near-ink body text on light bg */
+  --color-muted: 100 106 120;
+  --color-seal: 36 64 107;         /* #24406B */
+  --color-brass: 156 117 48;       /* #9C7530 */
+  --color-verified: 31 122 92;     /* #1F7A5C */
+  --color-alert: 178 58 58;        /* #B23A3A */
+  --color-line: 214 208 194;       /* warm hairline on parchment */
+  /* Fixed — deliberately NOT overridden in .dark below. Hero, Security,
+     and Footer use a permanently-dark band (bg-ink) regardless of the
+     site-wide light/dark toggle, and need text that's reliably light
+     against it. `parchment` itself can't be reused for that: in dark
+     mode it's redefined to equal `ink` (since it doubles as the page
+     background), which made text-parchment silently go dark-on-dark
+     and disappear on those sections. `cream` exists so "light text on
+     a dark band" and "the toggled page background" are never the same
+     variable. */
+  --color-cream: 246 244 238;
+}
+
+.dark {
+  /* Without this, browsers render native widgets (select dropdown
+     popups, date/time pickers, scrollbars) using their light-mode
+     defaults regardless of our own CSS — since those popups are OS/
+     browser-drawn chrome that Tailwind's text/background utilities
+     can't reach. This was causing near-invisible text in dropdowns
+     and date pickers specifically in dark mode. */
+  color-scheme: dark;
+  --color-ink: 11 18 32;
+  --color-parchment: 11 18 32;     /* dark mode background = ink */
+  --color-surface: 18 27 46;       /* #121B2E */
+  --color-text: 232 231 226;
+  --color-muted: 150 158 176;
+  --color-seal: 92 138 209;        /* #5C8AD1 — brighter for dark bg */
+  --color-brass: 201 154 70;       /* #C99A46 */
+  --color-verified: 47 168 120;    /* #2FA878 */
+  --color-alert: 214 91 91;        /* #D65B5B */
+  --color-line: 41 51 71;
+}
+
+html {
+  scroll-behavior: smooth;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  html {
+    scroll-behavior: auto;
+  }
+  *, *::before, *::after {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+  }
+}
+
+body {
+  @apply bg-parchment text-ink_text font-sans antialiased;
+}
+
+/* Visible keyboard focus everywhere — never remove this without replacing it */
+:focus-visible {
+  outline: 2px solid rgb(var(--color-seal));
+  outline-offset: 2px;
+  border-radius: 2px;
+}
+
+::selection {
+  background: rgb(var(--color-brass) / 0.35);
+}
+
+/* Utility face for hashes / transaction IDs / timestamps — a genuine
+   functional need in this product, not decorative monospace-for-flavor */
+.font-hash {
+  @apply font-mono text-[0.85em] tracking-tight;
+}

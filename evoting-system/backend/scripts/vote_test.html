@@ -1,0 +1,199 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Full Vote Flow — Live Test</title>
+<style>
+  body { font-family: system-ui, sans-serif; max-width: 780px; margin: 40px auto; padding: 0 20px; }
+  button { padding: 10px 16px; margin: 6px 6px 6px 0; font-size: 14px; cursor: pointer; }
+  button:disabled { opacity: 0.5; cursor: not-allowed; }
+  input, select { padding: 8px; margin: 4px 0; width: 100%; box-sizing: border-box; font-size: 14px; }
+  label { font-weight: 600; font-size: 13px; display: block; margin-top: 10px; }
+  #log { background: #111; color: #0f0; padding: 14px; border-radius: 6px; font-family: monospace;
+         font-size: 13px; white-space: pre-wrap; height: 320px; overflow-y: auto; margin-top: 20px; }
+  .ok { color: #6f6; } .fail { color: #f66; } .info { color: #6cf; }
+  h1 { font-size: 20px; } h2 { font-size: 15px; margin-top: 24px; }
+  .note { background: #fff3cd; padding: 10px; border-radius: 6px; font-size: 13px; }
+  video, canvas { display: none; }
+  video.live { display: block; width: 320px; border-radius: 8px; margin-top: 8px; border: 3px solid #6cf; transition: border-color 0.08s; }
+  video.live.flash { border-color: #fff; }
+  #captureCounter { display: none; font-family: monospace; font-size: 13px; color: #333; margin-top: 4px; }
+  #preview { display: block; width: 320px; border-radius: 8px; margin-top: 8px; }
+</style>
+</head>
+<body>
+
+<h1>Full Vote Flow — Live Test</h1>
+<div class="note">
+  Open this at <code>http://localhost:5000/dev/vote-test</code>.
+  Run <code>scripts/setup_vote_test_election.py</code> first to get the values below.
+</div>
+
+<h2>Setup</h2>
+<label>Voter email</label>
+<input id="voterEmail" placeholder="votetest_xxxxxx@example.com">
+<label>Voter password</label>
+<input id="voterPassword" value="Str0ng!TestPass1">
+<label>Election ID</label>
+<input id="electionId" placeholder="uuid">
+
+<h2>Step 1 — Login</h2>
+<button id="btnLogin">Login as voter</button>
+
+<h2>Step 2 — Register Face</h2>
+<button id="btnRegFace" disabled>Capture + Register Face (4s, move your head slightly)</button>
+
+<h2>Step 3 — Cast Vote</h2>
+<label>Candidate</label>
+<select id="candidateSelect" disabled></select>
+<button id="btnVote" disabled>Capture (blink + turn head) + Cast Vote</button>
+
+<video id="video" autoplay playsinline></video>
+<div id="captureCounter"></div>
+<canvas id="canvas"></canvas>
+<img id="preview" style="display:none">
+
+<div id="log"></div>
+
+<script>
+const API = "";
+let accessToken = null;
+let electionId = null;
+
+function log(msg, cls) {
+  const el = document.getElementById("log");
+  const line = document.createElement("div");
+  if (cls) line.className = cls;
+  line.textContent = msg;
+  el.appendChild(line);
+  el.scrollTop = el.scrollHeight;
+}
+
+async function captureFrames(seconds, fps, promptText) {
+  const video = document.getElementById("video");
+  const canvas = document.getElementById("canvas");
+  const counter = document.getElementById("captureCounter");
+  const stream = await navigator.mediaDevices.getUserMedia({ video: true });
+  video.srcObject = stream;
+  await video.play();
+
+  // Show the live feed so the user can actually see their face being
+  // captured, not just a final still frame after the fact.
+  video.classList.add("live");
+  counter.style.display = "block";
+
+  log(promptText + ` (capturing for ${seconds}s)...`, "info");
+  const frames = [];
+  const ctx = canvas.getContext("2d");
+  canvas.width = video.videoWidth || 640;
+  canvas.height = video.videoHeight || 480;
+
+  const interval = 1000 / fps;
+  const totalFrames = Math.floor(seconds * fps);
+  for (let i = 0; i < totalFrames; i++) {
+    ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+    frames.push(canvas.toDataURL("image/jpeg", 0.8));
+    counter.textContent = `Capturing frame ${i + 1} / ${totalFrames}...`;
+    // Brief flash on the video border each frame, so it's visually
+    // obvious exactly when each capture happens, not just a static feed.
+    video.classList.add("flash");
+    setTimeout(() => video.classList.remove("flash"), 80);
+    await new Promise(r => setTimeout(r, interval));
+  }
+
+  video.classList.remove("live");
+  counter.style.display = "none";
+
+  document.getElementById("preview").src = frames[frames.length - 1];
+  document.getElementById("preview").style.display = "block";
+
+  stream.getTracks().forEach(t => t.stop());
+  log(`Captured ${frames.length} frames.`, "ok");
+  return frames;
+}
+
+// ---- Step 1: Login ----
+document.getElementById("btnLogin").addEventListener("click", async () => {
+  const email = document.getElementById("voterEmail").value;
+  const password = document.getElementById("voterPassword").value;
+  electionId = document.getElementById("electionId").value;
+
+  log("Logging in as " + email + " ...", "info");
+  const resp = await fetch(API + "/api/auth/login", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ email, password, role: "voter" }),
+  });
+  const body = await resp.json();
+  if (resp.status !== 200) {
+    log("LOGIN FAILED: " + resp.status + " " + JSON.stringify(body), "fail");
+    return;
+  }
+  accessToken = body.data.access_token;
+  log("Logged in.", "ok");
+
+  // Load candidates for the dropdown
+  const candResp = await fetch(API + `/api/elections/${electionId}/candidates`);
+  const candBody = await candResp.json();
+  const select = document.getElementById("candidateSelect");
+  select.innerHTML = "";
+  for (const c of candBody.data) {
+    const opt = document.createElement("option");
+    opt.value = c.id;
+    opt.textContent = c.name;
+    select.appendChild(opt);
+  }
+  select.disabled = false;
+  log(`Loaded ${candBody.data.length} candidates.`, "ok");
+
+  document.getElementById("btnRegFace").disabled = false;
+  document.getElementById("btnVote").disabled = false;
+});
+
+// ---- Step 2: Register face ----
+document.getElementById("btnRegFace").addEventListener("click", async () => {
+  try {
+    const frames = await captureFrames(4, 4, "REGISTRATION: move your head slightly, vary expression");
+    log("Sending to /api/face/register ...", "info");
+    const resp = await fetch(API + "/api/face/register", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Authorization: "Bearer " + accessToken },
+      body: JSON.stringify({ images: frames }),
+    });
+    const body = await resp.json();
+    if (resp.status === 201) {
+      log("FACE REGISTERED: " + JSON.stringify(body), "ok");
+    } else {
+      log("FACE REGISTRATION FAILED: " + resp.status + " " + JSON.stringify(body), "fail");
+    }
+  } catch (e) {
+    log("ERROR: " + e.message, "fail");
+  }
+});
+
+// ---- Step 3: Cast vote (face verify frames) ----
+document.getElementById("btnVote").addEventListener("click", async () => {
+  try {
+    const candidateId = document.getElementById("candidateSelect").value;
+    const frames = await captureFrames(3, 4, "VOTE: blink and turn your head now!");
+
+    log("Submitting vote...", "info");
+    const voteResp = await fetch(API + `/api/elections/${electionId}/vote`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Authorization: "Bearer " + accessToken },
+      body: JSON.stringify({ candidate_id: candidateId, face_images: frames }),
+    });
+    const voteBody = await voteResp.json();
+    if (voteResp.status === 201) {
+      log("VOTE CAST SUCCESSFULLY: " + JSON.stringify(voteBody), "ok");
+      log(`Block index: ${voteBody.data.block_index}, Transaction ID: ${voteBody.data.transaction_id}`, "ok");
+    } else {
+      log("VOTE FAILED: " + voteResp.status + " " + JSON.stringify(voteBody), "fail");
+    }
+  } catch (e) {
+    log("ERROR: " + e.message, "fail");
+  }
+});
+</script>
+</body>
+</html>

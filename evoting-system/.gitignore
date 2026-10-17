@@ -1,0 +1,44 @@
+
+# --- Backend (Python / Flask) ---
+backend/venv/
+backend/.venv/
+backend/env/
+backend/__pycache__/
+backend/**/__pycache__/
+*.py[cod]
+backend/.env
+backend/.env.*
+!backend/.env.example
+backend/.pytest_cache/
+backend/.coverage
+backend/*.egg-info/
+backend/instance/
+backend/uploads/
+
+# --- Frontend (React / Vite) ---
+frontend/node_modules/
+frontend/dist/
+frontend/.env
+frontend/.env.*
+!frontend/.env.example
+
+# --- Environment files anywhere ---
+.env
+.env.*
+!.env.example
+
+# --- Local databases and sensitive data ---
+*.db
+*.sqlite
+*.sqlite3
+*.pem
+*.key
+secrets/
+private_data/
+biometric_data/
+
+# --- Logs and generated files ---
+*.log
+.DS_Store
+.vscode/
+.idea/
